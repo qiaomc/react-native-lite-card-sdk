@@ -1,251 +1,422 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  Text,
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  NativeEventEmitter,
-  ToastAndroid,
-  Platform,
-  Alert,
-} from 'react-native';
-
-import { LiteCardSdk } from 'react-native-lite-card-sdk';
-
-const buttonTexts = [
-  'Get Card Info',
-  'Reset Card',
-  'Activate Card',
-  'Change PIN',
-  'Check Slot',
-  'Write Slot',
-  'Read Slot',
-];
+import { useEffect, useState } from 'react';
+import { View, Text, Alert, Switch } from 'react-native';
+import onekeyLite, {
+  CardErrors,
+  type NfcConnectUiState,
+} from 'react-native-lite-card-sdk';
+import { TestPageBase, TestButton, TestInput, TestResult } from './TestPageBase';
 
 export default function App() {
-  const [content, setContent] = useState<Array<{ text: string; color: string }>>([]);
-  const scrollViewRef = useRef<ScrollView>(null);
-  const test_pin = "555555";
-  const new_pin = "123456";
-  const test_slot_id = 1;
-  const test_data = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+  const [result, setResult] = useState<unknown>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [connectionState, setConnectionState] =
+    useState<NfcConnectUiState | null>(null);
+  const [isListening, setIsListening] = useState(false);
 
+  const [mnemonic, setMnemonic] = useState(
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  );
+  const [pin, setPin] = useState('123456');
+  const [newPin, setNewPin] = useState('654321');
+  const [overwrite, setOverwrite] = useState(false);
 
   useEffect(() => {
-    const sub1 = LiteCardSdk.onApduLog(event => {
-      console.log('APDU Log:', event.message);
-      const color =
-        event.isSuccess === false
-          ? '#eb5757'
-          : event.isSent === true
-            ? '#2f80ed'
-            : '#27ae60';
-      const text = `${event.isSent === true ? '===>  ' : '<====  '}${event.message}`;
-      setContent((prev) => [...prev, { text, color }]);
-    });
+    if (isListening) {
+      const subscription = onekeyLite.addConnectListener(
+        (event: NfcConnectUiState) => {
+          setConnectionState(event);
+        }
+      );
 
-    const sub2 = LiteCardSdk.onNfcTouch(event => {
-      console.log('Touch:', event.isBackupCard);
-      const message = event.isBackupCard ? '检测到备份卡' : '检测到非备份卡';
-      if (Platform.OS === 'android') {
-        ToastAndroid.show(message, ToastAndroid.SHORT);
-      } else {
-        Alert.alert('提示', message);
+      return () => {
+        subscription?.remove();
+      };
+    }
+  }, [isListening]);
+
+  const executeLiteCardOperation = async (
+    operation: () => Promise<unknown>,
+    operationName: string
+  ) => {
+    setIsLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const res = await operation();
+
+      if (
+        res &&
+        typeof res === 'object' &&
+        'error' in res &&
+        (res as { error: { code: number; message: string | null } | null })
+          .error
+      ) {
+        const { error: opError } = res as {
+          error: { code: number; message: string | null };
+        };
+        const errorCode = opError.code;
+        const errorName =
+          Object.entries(CardErrors).find(([, code]) => code === errorCode)?.[0] ||
+          'Unknown';
+        throw new Error(
+          `${errorName} (${errorCode}): ${opError.message || 'Unknown error'}`
+        );
       }
 
-    });
+      setResult(res);
+      Alert.alert('Success', `${operationName} completed successfully`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(errorMessage);
+      Alert.alert('Error', `${operationName} failed: ${errorMessage}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    return () => {
-      sub1.remove();
-      sub2.remove();
-    };
-  }, []);
+  const getLiteInfo = () => {
+    executeLiteCardOperation(() => onekeyLite.getLiteInfo(), 'Get Lite Info');
+  };
 
+  const checkNFCPermission = () => {
+    executeLiteCardOperation(
+      () => onekeyLite.checkNFCPermission(),
+      'Check NFC Permission'
+    );
+  };
 
-
-  const handleButtonPress = async (label: string) => {
-    setContent([]);
-
-    if (label === 'Get Card Info') {
-      try {
-        const result = await LiteCardSdk.getCardInfo();
-        const text = `getCardInfo: ${result ? JSON.stringify(result) : 'null'}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `getCardInfo error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
+  const setMnemonicOnCard = () => {
+    if (!mnemonic.trim()) {
+      Alert.alert('Error', 'Mnemonic is required');
+      return;
+    }
+    if (!pin.trim()) {
+      Alert.alert('Error', 'PIN is required');
       return;
     }
 
-    if (label === 'Reset Card') {
-      try {
-        const result = await LiteCardSdk.resetCard();
-        const text = `resetCard: ${result}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `resetCard error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
+    executeLiteCardOperation(
+      () => onekeyLite.setMnemonic(mnemonic.trim(), pin.trim(), overwrite),
+      'Set Mnemonic'
+    );
+  };
+
+  const getMnemonicFromCard = () => {
+    if (!pin.trim()) {
+      Alert.alert('Error', 'PIN is required');
       return;
     }
 
-    if (label === 'Activate Card') {
-      try {
-        const result = await LiteCardSdk.activateCard(test_pin);
-        const text = `activateCard: ${result}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `activateCard error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
+    executeLiteCardOperation(
+      () => onekeyLite.getMnemonicWithPin(pin.trim()),
+      'Get Mnemonic'
+    );
+  };
+
+  const changePinOnCard = () => {
+    if (!pin.trim() || !newPin.trim()) {
+      Alert.alert('Error', 'Both old and new PINs are required');
       return;
     }
 
-    if (label === 'Change PIN') {
-      try {
-        const result = await LiteCardSdk.changePin(test_pin, new_pin);
-        const text = `changePin: ${result}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `changePin error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
-      return;
+    executeLiteCardOperation(
+      () => onekeyLite.changePin(pin.trim(), newPin.trim()),
+      'Change PIN'
+    );
+  };
+
+  const resetCard = () => {
+    Alert.alert(
+      'Reset Card',
+      'This will permanently delete all data on the card. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: () =>
+            executeLiteCardOperation(() => onekeyLite.reset(), 'Reset Card'),
+        },
+      ]
+    );
+  };
+
+  const cancelOperation = () => {
+    try {
+      onekeyLite.cancel();
+      Alert.alert('Info', 'Current operation cancelled');
+    } catch (err) {
+      Alert.alert('Error', `Failed to cancel: ${err}`);
     }
+  };
 
-    if (label === 'Check Slot') {
-      try {
-        const result = await LiteCardSdk.checkSlotEmpty(test_slot_id, new_pin);
-        const text = `checkSlotEmpty: ${result}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `checkSlotEmpty error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
-      return;
+  const openSettings = () => {
+    try {
+      onekeyLite.intoSetting();
+      Alert.alert('Info', 'Opening device settings');
+    } catch (err) {
+      Alert.alert('Error', `Failed to open settings: ${err}`);
     }
+  };
 
-    if (label === 'Write Slot') {
-      try {
-        const utf8Array = Array.from(new TextEncoder().encode(test_data));
-        const result = await LiteCardSdk.writeSlot(test_slot_id, utf8Array, new_pin);
-        const text = `writeSlot: ${result}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `writeSlot error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
-      return;
+  const toggleListener = () => {
+    setIsListening(!isListening);
+    if (!isListening) {
+      setConnectionState(null);
     }
+  };
 
-    if (label === 'Read Slot') {
-      try {
-        const result = await LiteCardSdk.readSlot(test_slot_id, new_pin);
-        const decoded = result
-          ? decodeURIComponent(
-              Array.from(Uint8Array.from(result))
-                .map((byte) => `%${byte.toString(16).padStart(2, '0')}`)
-                .join('')
-            )
-          : 'null';
-        const text = `readSlot: ${decoded}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      } catch (error) {
-        const text = `readSlot error: ${String(error)}`;
-        setContent((prev) => [...prev, { text, color: '#9b51e0' }]);
-      }
-      return;
-    }
-
-
+  const resetForm = () => {
+    setResult(null);
+    setError(null);
+    setConnectionState(null);
+    setMnemonic(
+      'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+    );
+    setPin('123456');
+    setNewPin('654321');
+    setOverwrite(false);
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.topHalf}>
-        {buttonTexts.map((label) => (
-          <TouchableOpacity
-            key={label}
-            style={styles.button}
-            activeOpacity={0.7}
-            onPress={() => handleButtonPress(label)}
-          >
-            <Text style={styles.buttonText}>{label}</Text>
-          </TouchableOpacity>
-        ))}
+    <TestPageBase title="Lite Card Test">
+      <View>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '600',
+            marginBottom: 10,
+            color: '#333',
+          }}
+        >
+          NFC Status & Permissions
+        </Text>
+
+        <TestButton
+          title={isLoading ? 'Checking...' : 'Check NFC Permission'}
+          onPress={checkNFCPermission}
+          disabled={isLoading}
+        />
+
+        <TestButton
+          title="Open NFC Settings"
+          onPress={openSettings}
+          style={{ marginTop: 10, backgroundColor: '#ff9500' }}
+        />
       </View>
 
-      <View style={styles.bottomHalf}>
-        <ScrollView
-          ref={scrollViewRef}
-          style={styles.textArea}
-          contentContainerStyle={styles.textAreaContent}
-          onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+      <View>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '600',
+            marginBottom: 10,
+            color: '#333',
+          }}
         >
-          {content.length ? (
-            content.map((item, index) => (
-              <Text
-                key={`${item.text}-${index}`}
-                style={[styles.outputLine, { color: item.color }]}
-              >
-                {item.text}
-              </Text>
-            ))
-          ) : (
-            <Text style={styles.placeholderText}></Text>
-          )}
-        </ScrollView>
+          Card Information
+        </Text>
+
+        <TestButton
+          title={isLoading ? 'Reading...' : 'Get Lite Card Info'}
+          onPress={getLiteInfo}
+          disabled={isLoading}
+        />
       </View>
-    </View>
+
+      <View>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '600',
+            marginBottom: 10,
+            color: '#333',
+          }}
+        >
+          Mnemonic Operations
+        </Text>
+
+        <TestInput
+          placeholder="Mnemonic (12 or 24 words)"
+          value={mnemonic}
+          onChangeText={setMnemonic}
+          multiline
+        />
+
+        <TestInput
+          placeholder="PIN (6 digits recommended)"
+          value={pin}
+          onChangeText={setPin}
+          secureTextEntry
+        />
+
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: '#fff',
+            padding: 15,
+            borderRadius: 8,
+            marginVertical: 10,
+          }}
+        >
+          <Text style={{ fontSize: 16, color: '#333' }}>Overwrite Existing</Text>
+          <Switch
+            value={overwrite}
+            onValueChange={setOverwrite}
+            trackColor={{ false: '#767577', true: '#81b0ff' }}
+            thumbColor={overwrite ? '#007AFF' : '#f4f3f4'}
+          />
+        </View>
+
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          <TestButton
+            title="Set Mnemonic"
+            onPress={setMnemonicOnCard}
+            disabled={isLoading}
+            style={{ flex: 1, minWidth: 120 }}
+          />
+          <TestButton
+            title="Get Mnemonic"
+            onPress={getMnemonicFromCard}
+            disabled={isLoading}
+            style={{ flex: 1, minWidth: 120 }}
+          />
+        </View>
+      </View>
+
+      <View>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '600',
+            marginBottom: 10,
+            color: '#333',
+          }}
+        >
+          PIN Management
+        </Text>
+
+        <TestInput
+          placeholder="New PIN (6 digits recommended)"
+          value={newPin}
+          onChangeText={setNewPin}
+          secureTextEntry
+        />
+
+        <TestButton
+          title="Change PIN"
+          onPress={changePinOnCard}
+          disabled={isLoading}
+        />
+      </View>
+
+      <View>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '600',
+            marginBottom: 10,
+            color: '#333',
+          }}
+        >
+          Card Management
+        </Text>
+
+        <TestButton
+          title="Reset Card (Danger!)"
+          onPress={resetCard}
+          disabled={isLoading}
+          style={{ backgroundColor: '#ff3b30' }}
+        />
+
+        <TestButton
+          title="Cancel Current Operation"
+          onPress={cancelOperation}
+          style={{ marginTop: 10, backgroundColor: '#ff9500' }}
+        />
+      </View>
+
+      <View>
+        <Text
+          style={{
+            fontSize: 16,
+            fontWeight: '600',
+            marginBottom: 10,
+            color: '#333',
+          }}
+        >
+          Connection Monitoring
+        </Text>
+
+        <TestButton
+          title={isListening ? 'Stop Monitoring' : 'Start Monitoring'}
+          onPress={toggleListener}
+          style={{ backgroundColor: isListening ? '#ff3b30' : '#007AFF' }}
+        />
+
+        {connectionState && (
+          <View
+            style={{
+              backgroundColor: '#fff',
+              padding: 15,
+              borderRadius: 8,
+              marginTop: 10,
+            }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: '600', color: '#333' }}>
+              Connection State:
+            </Text>
+            <Text style={{ fontSize: 14, color: '#666', marginTop: 5 }}>
+              Code: {connectionState.code}
+              {'\n'}
+              Message: {connectionState.message}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      <TestButton
+        title="Reset Form"
+        onPress={resetForm}
+        disabled={isLoading}
+        style={{ backgroundColor: '#ff9500' }}
+      />
+
+      <TestResult result={result} error={error} />
+
+      <View
+        style={{
+          marginTop: 20,
+          padding: 15,
+          backgroundColor: '#fff',
+          borderRadius: 8,
+        }}
+      >
+        <Text style={{ fontSize: 14, color: '#666', lineHeight: 20 }}>
+          <Text style={{ fontWeight: '600' }}>Lite Card Operations:</Text>
+          {'\n'}• <Text style={{ fontWeight: '500' }}>NFC Permission:</Text> Check
+          NFC hardware availability{'\n'}•{' '}
+          <Text style={{ fontWeight: '500' }}>Card Info:</Text> Get card status
+          and information{'\n'}•{' '}
+          <Text style={{ fontWeight: '500' }}>Set Mnemonic:</Text> Store seed
+          phrase on card{'\n'}•{' '}
+          <Text style={{ fontWeight: '500' }}>Get Mnemonic:</Text> Retrieve seed
+          phrase with PIN{'\n'}•{' '}
+          <Text style={{ fontWeight: '500' }}>Change PIN:</Text> Update card
+          access PIN{'\n'}•{' '}
+          <Text style={{ fontWeight: '500' }}>Reset Card:</Text> Factory reset
+          (deletes all data)
+          {'\n'}
+          {'\n'}
+          <Text style={{ fontWeight: '600' }}>Requirements:</Text>
+          {'\n'}• NFC-enabled device{'\n'}• DigitalShield backup card{'\n'}•
+          Proper NFC permissions
+        </Text>
+      </View>
+    </TestPageBase>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  topHalf: {
-    flex: 1,
-    paddingHorizontal: 12,
-    paddingTop: 16,
-    gap: 8,
-  },
-  bottomHalf: {
-    flex: 1,
-    padding: 12,
-  },
-  button: {
-    width: '100%',
-    height: 44,
-    backgroundColor: '#2f80ed',
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  textArea: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#d0d0d0',
-    borderRadius: 8,
-    padding: 12,
-  },
-  textAreaContent: {
-    flexGrow: 1,
-    paddingBottom: 12,
-  },
-  outputLine: {
-    fontSize: 16,
-    marginBottom: 6,
-  },
-  placeholderText: {
-    color: '#999',
-    fontSize: 16,
-  },
-});
