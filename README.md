@@ -59,6 +59,28 @@ yarn example android
 
 Ensure NFC intent filters are configured in your app's `AndroidManifest.xml` (see `example/android/app/src/main/AndroidManifest.xml`).
 
+## Troubleshooting (Android build)
+
+If `./gradlew` fails with `Could not GET https://dl.google.com/...` or TLS handshake errors:
+
+1. Pull the latest code (example Android build uses Aliyun Maven mirrors as fallback).
+2. Ensure JDK 17+ is used: `java -version`
+3. Clean and rebuild:
+
+```sh
+cd example/android
+./gradlew clean
+cd ../..
+yarn example android --device <device-id>
+```
+
+4. If Google Maven is still unreachable, use a VPN or configure your network proxy in `~/.gradle/gradle.properties`:
+
+```properties
+systemProp.https.proxyHost=127.0.0.1
+systemProp.https.proxyPort=7890
+```
+
 ## Project structure
 
 ```
