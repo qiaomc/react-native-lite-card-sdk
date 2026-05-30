@@ -14,22 +14,38 @@ yarn add react-native-lite-card-sdk
 
 ## Usage
 
+### Compatible API (`@onekeyfe/react-native-lite-card`)
+
+Drop-in facade with the same methods and `PromiseResult` error shape:
+
 ```tsx
-import LiteCardSdk, { type CardInfo } from 'react-native-lite-card-sdk';
+import onekeyLite, { CardErrors, type NfcConnectUiState } from 'react-native-lite-card-sdk';
 
-const touchSub = LiteCardSdk.onNfcTouch((event) => {
-  console.log('NFC touch:', event.isBackupCard);
+const result = await onekeyLite.getLiteInfo();
+if (result.error) {
+  console.log(CardErrors[result.error.code], result.error.message);
+} else {
+  console.log(result.data);
+}
+
+await onekeyLite.setMnemonic(mnemonic, pin);
+await onekeyLite.getMnemonicWithPin(pin);
+await onekeyLite.changePin(oldPin, newPin);
+await onekeyLite.reset();
+
+onekeyLite.addConnectListener((event: NfcConnectUiState) => {
+  console.log(event.code, event.message);
 });
+```
 
-const apduSub = LiteCardSdk.onApduLog((event) => {
-  console.log(event.message);
-});
+### Low-level API (backup card SDK)
 
-const info: CardInfo | null = await LiteCardSdk.getCardInfo();
+```tsx
+import { LiteCardSdk } from 'react-native-lite-card-sdk';
+
+const info = await LiteCardSdk.getCardInfo();
 await LiteCardSdk.activateCard('555555');
-await LiteCardSdk.changePin('555555', '123456');
-await LiteCardSdk.writeSlot(1, [/* byte array */], '123456');
-const data = await LiteCardSdk.readSlot(1, '123456');
+await LiteCardSdk.writeSlot(1, [/* bytes */], '123456');
 ```
 
 ### API

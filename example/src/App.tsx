@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 
-import LiteCardSdk from 'react-native-lite-card-sdk';
+import { LiteCardSdk } from 'react-native-lite-card-sdk';
 
 const buttonTexts = [
   'Get Card Info',
