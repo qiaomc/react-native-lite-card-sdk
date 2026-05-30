@@ -34,13 +34,15 @@ function mapCardInfo(info: NativeCardInfo | null): CardInfo | null {
     return null;
   }
 
-  const pinActivated = info.isNewCard === true;
+  // Backup SDK `isNewCard` matches old Connection.kt semantics:
+  // status byte 0x02 => pin not set => isNewCard=true, hasBackup=false
+  const isNewCard = info.isNewCard === true;
 
   return {
     serialNum: info.serialNumber ?? '',
-    pinRetryCount: info.pinRetryCount ?? 0,
-    isNewCard: !pinActivated,
-    hasBackup: pinActivated,
+    pinRetryCount: info.pinRetryCount ?? -1,
+    isNewCard,
+    hasBackup: !isNewCard,
   };
 }
 
